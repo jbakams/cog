@@ -76,6 +76,8 @@ def experiment(variant):
         assert set(np.unique(replay_buffer._rewards)).issubset(
             set(6.0 * np.array([0, 1]) + 4.0))
 
+
+
     trainer = CQLTrainer(
         env=eval_env,
         policy=policy,
