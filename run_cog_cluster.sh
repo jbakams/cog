@@ -2,7 +2,7 @@
 #SBATCH --mem=16G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=5-3:0:0
+#SBATCH --time=3-3:0:0
 #SBATCH --mail-user=jeremie.bakambana@umontreal.ca
 #SBATCH --mail-type=ALL
 #SBATCH --gres=gpu:p100l:1
