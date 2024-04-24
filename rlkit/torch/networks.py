@@ -113,6 +113,15 @@ class MlpPolicy(Mlp, Policy):
 
     def get_actions(self, obs):
         return eval_np(self, obs)
+        
+class LinearTransform(nn.Module):
+    def __init__(self, m, b):
+        super().__init__()
+        self.m = m
+        self.b = b
+
+    def __call__(self, t):
+        return self.m * t + self.b
 
 
 class TanhMlpPolicy(MlpPolicy):
