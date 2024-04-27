@@ -171,7 +171,7 @@ class MultivariateDiagonalNormal(TorchDistributionWrapper):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
 
     def __init__(self, loc, scale_diag, reinterpreted_batch_ndims=1):
-        dist = Independent(TorchNormal(loc, scale_diag),
+        dist = TorchIndependent(TorchNormal(loc, scale_diag),
                            reinterpreted_batch_ndims=reinterpreted_batch_ndims)
         super().__init__(dist)
 

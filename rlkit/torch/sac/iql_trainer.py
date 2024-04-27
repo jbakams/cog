@@ -29,7 +29,7 @@ class IQLTrainer(TorchTrainer):
             qf1,
             qf2,
             vf,
-            policy_eval_start,
+            policy_eval_start=1,
             quantile=0.5,
             target_qf1=None,
             target_qf2=None,

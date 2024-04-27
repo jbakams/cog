@@ -1,3 +1,4 @@
+import comet_ml
 import rlkit.torch.pytorch_util as ptu
 from rlkit.data_management.load_buffer import load_data_from_npy_chaining
 from rlkit.samplers.data_collector import MdpPathCollector, \
@@ -22,8 +23,23 @@ DEFAULT_TASK_BUFFER = ('/media/avi/data/Work/github/avisingh599/minibullet'
                         '_noise_0.1_2020-10-06T19-37-26_100.npy')
 CUSTOM_LOG_DIR = '/nfs/kun1/users/avi/doodad-output/'
 
+class Log:
+    def __init__(self, PATH):
+        from logging_utils import Logger as TableLogger
+        self._logger = TableLogger()
+        self._logger.add_folder_output(folder_name=f"{PATH}")
+        self._logger.add_tabular_output(file_name=f"{PATH}/log_data.csv")
+        os.makedirs(PATH, exist_ok=True)
 
-def experiment(variant):
+    def log_dict(self, dico):
+        for k, v in dico.items():
+            if isinstance(v, list) and len(v) == 0:
+                continue
+            self._logger.record_tabular_misc_stat(k, v)
+        self._logger.dump_tabular()
+
+
+def experiment(variant, comet_logger):
     eval_env = roboverse.make(variant['env'], transpose_image=True)
     expl_env = eval_env
     action_dim = eval_env.action_space.low.size
@@ -76,8 +92,6 @@ def experiment(variant):
         assert set(np.unique(replay_buffer._rewards)).issubset(
             set(6.0 * np.array([0, 1]) + 4.0))
 
-
-
     trainer = CQLTrainer(
         env=eval_env,
         policy=policy,
@@ -102,26 +116,38 @@ def experiment(variant):
     algorithm.post_epoch_funcs.append(video_func)
 
     algorithm.to(ptu.device)
-    algorithm.train()
+    algorithm.train(comet_logger=comet_logger)
 
 
 def enable_gpus(gpu_str):
     if (gpu_str is not ""):
         os.environ["CUDA_VISIBLE_DEVICES"] = gpu_str
+        # os.environ["MPS_VISIBLE_DEVICES"] = gpu_str
     return
 
 
 if __name__ == "__main__":
     # noinspection PyTypeChecker
+    comet_exp = comet_ml.Experiment(
+        api_key='QsmVNJzwh5dbTTI6ECRGBtZfm',
+        project_name='cog_project',
+        workspace="jbakams"
+    )
+    logger = Log(PATH='/home/jey/Documents/Github/cog/logs')
+    comet_exp.add_tag("project")
+    comet_exp.set_name("cog")
+    comet_exp.set_filename(fname="cometML_test")
+    logger._logger.set_comet_logger(comet_exp)
+
     variant = dict(
         algorithm="CQL",
         version="normal",
         algorithm_kwargs=dict(
             # num_epochs=100,
             # num_eval_steps_per_epoch=50,
-            # num_trains_per_train_loop=100,
-            # num_expl_steps_per_train_loop=100,
-            # min_num_steps_before_training=100,
+            # num_trains_per_train_loop=600,
+            # num_expl_steps_per_train_loop=600,
+            # min_num_steps_before_training=600,
             # max_path_length=10,
             num_epochs=3000,
             num_eval_steps_per_epoch=300,
@@ -177,10 +203,10 @@ if __name__ == "__main__":
     )
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, required=True)
-    parser.add_argument("--max-path-length", type=int, required=True)
-    parser.add_argument("--prior-buffer", type=str, default=DEFAULT_PRIOR_BUFFER)
-    parser.add_argument("--task-buffer", type=str, default=DEFAULT_TASK_BUFFER)
+    parser.add_argument("--env", type=str, default='Widow250PickTray-v0')
+    parser.add_argument("--max-path-length", type=int, default=40)
+    parser.add_argument("--prior-buffer", type=str, default="/Users/parnika./Documents/cog/pickplace_prior.npy")
+    parser.add_argument("--task-buffer", type=str, default="/Users/parnika./Documents/cog/pickplace_task.npy")
     parser.add_argument("--gpu", default='0', type=str)
     parser.add_argument("--min-q-weight", default=1.0, type=float,
                         help="Value of alpha in CQL")
@@ -226,7 +252,7 @@ if __name__ == "__main__":
     variant['use_positive_rew'] = args.use_positive_rew
     variant['seed'] = args.seed
 
-    ptu.set_gpu_mode(True)
+    ptu.set_gpu_mode(True) #**
     exp_prefix = 'cql-cog-{}'.format(args.env)
     if os.path.isdir(CUSTOM_LOG_DIR):
         base_log_dir = CUSTOM_LOG_DIR
@@ -235,4 +261,4 @@ if __name__ == "__main__":
 
     setup_logger(exp_prefix, variant=variant, base_log_dir=base_log_dir,
                  snapshot_mode='gap_and_last', snapshot_gap=10,)
-    experiment(variant)
+    experiment(variant, logger)

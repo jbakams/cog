@@ -40,10 +40,13 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         self._start_epoch = 0
 
         self.post_epoch_funcs = []
+        
+        self.expl_env.reset()
+        self.expl_env._render()
 
-    def train(self, start_epoch=0):
+    def train(self,  comet_logger, start_epoch=0):
         self._start_epoch = start_epoch
-        self._train()
+        self._train(comet_logger)
 
     def _train(self):
         """
@@ -51,12 +54,13 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         """
         raise NotImplementedError('_train must implemented by inherited class')
 
-    def _end_epoch(self, epoch):
+    def _end_epoch(self, epoch, comet_logger):
         if not self.trainer.discrete:
             snapshot = self._get_snapshot()
-            logger.save_itr_params(epoch, snapshot)
+            if epoch%50==0:
+                logger.save_itr_params(epoch, snapshot)
             gt.stamp('saving')
-        self._log_stats(epoch)
+        self._log_stats(epoch, comet_logger)
 
         for post_epoch_func in self.post_epoch_funcs:
             post_epoch_func(self, epoch)
@@ -78,7 +82,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             snapshot['replay_buffer/' + k] = v
         return snapshot
 
-    def _log_stats(self, epoch):
+    def _log_stats(self, epoch, comet_logger):
         logger.log("Epoch {} finished".format(epoch), with_timestamp=True)
 
         """
@@ -120,21 +124,32 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             self.eval_data_collector.get_diagnostics(),
             prefix='evaluation/',
         )
+        # comet_logger.log_dict(self.eval_data_collector.get_diagnostics())
+
         eval_paths = self.eval_data_collector.get_epoch_paths()
         if hasattr(self.eval_env, 'get_diagnostics'):
             logger.record_dict(
                 self.eval_env.get_diagnostics(eval_paths),
                 prefix='evaluation/',
             )
+            # comet_logger.log_dict(self.eval_env.get_diagnostics(eval_paths))
         logger.record_dict(
             eval_util.get_generic_path_information(eval_paths),
             prefix="evaluation/",
         )
+        # comet_logger.log_dict(eval_util.get_generic_path_information(eval_paths))
 
         """
         Misc
         """
         gt.stamp('logging')
+        logger.get_table_dict()
+        n_comet_dict = {}
+        for k,v in logger.get_table_dict().items():
+            if k.startswith('evaluation'):
+                n_comet_dict[k] = v
+        n_comet_dict['Epoch'] = epoch
+        comet_logger.log_dict(n_comet_dict)
         logger.record_dict(_get_epoch_timings())
         logger.record_tabular('Epoch', epoch)
         logger.dump_tabular(with_prefix=False, with_timestamp=False)

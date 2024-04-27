@@ -6,7 +6,7 @@ import rlkit.torch.pytorch_util as ptu
 
 from rlkit.policies.base import ExplorationPolicy, Policy
 from rlkit.torch.core import eval_np
-from rlkit.torch.distributions import TanhNormal
+from rlkit.torch.distributions import Normal, TanhNormal
 from rlkit.torch.networks import Mlp
 from rlkit.torch.distributions import MultivariateDiagonalNormal
 
@@ -208,6 +208,9 @@ class TanhGaussianPolicy(Mlp, ExplorationPolicy):
             action, mean, log_std, log_prob, entropy, std,
             mean_action_log_prob, pre_tanh_value,
         )
+    
+     
+     
 
 
 class MakeDeterministic(nn.Module, Policy):

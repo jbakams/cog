@@ -86,6 +86,8 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
         self._reserve_path_collector = MdpPathCollector(
             env=evaluation_env, policy=self.trainer.policy, 
         )
+        
+        
     
     def policy_fn(self, obs):
         """
@@ -107,7 +109,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
         ones = np.eye(q_vector.shape[1])
         return ptu.get_numpy(action).flatten()
 
-    def _train(self):
+    def _train(self, comet_logger):
         if self.min_num_steps_before_training > 0 and not self.batch_rl:
             init_expl_paths = self.expl_data_collector.collect_new_paths(
                 self.max_path_length,
@@ -123,6 +125,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
                 range(self._start_epoch, self.num_epochs),
                 save_itrs=True,
         ):
+        
             if self.q_learning_alg:
                 policy_fn = self.policy_fn
                 if self.trainer.discrete:
@@ -177,7 +180,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
                 gt.stamp('training', unique=False)
                 self.training_mode(False)
 
-            self._end_epoch(epoch)
+            self._end_epoch(epoch, comet_logger)
 
             # import ipdb; ipdb.set_trace()
             ## After epoch visualize

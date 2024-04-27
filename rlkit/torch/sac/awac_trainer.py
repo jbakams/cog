@@ -14,6 +14,7 @@ from rlkit.core.logging import add_prefix
 from rlkit.util.ml_util import PiecewiseLinearSchedule, ConstantSchedule
 import torch.nn.functional as F
 from rlkit.torch.networks import LinearTransform
+from rlkit.torch.distributions import MultivariateDiagonalNormal
 import time
 
 
@@ -55,9 +56,11 @@ class AWACTrainer(TorchTrainer):
 
             policy_update_period=1,
             q_update_period=1,
+            
+            discrete=False,
 
             weight_loss=True,
-            compute_bc=True,
+            compute_bc=False,
             use_awr_update=True,
             use_reparam_update=False,
 
@@ -96,6 +99,7 @@ class AWACTrainer(TorchTrainer):
             buffer_policy_reset_period=-1,
             num_buffer_policy_train_steps_on_reset=100,
             advantage_weighted_buffer_loss=True,
+            policy_eval_start=0,
     ):
         super().__init__()
         self.env = env
@@ -107,6 +111,8 @@ class AWACTrainer(TorchTrainer):
         self.buffer_policy = buffer_policy
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
+        
+        self.policy_eval_start=policy_eval_start
 
         self.use_awr_update = use_awr_update
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
@@ -225,6 +231,7 @@ class AWACTrainer(TorchTrainer):
         self.buffer_policy_reset_period = buffer_policy_reset_period
         self.num_buffer_policy_train_steps_on_reset=num_buffer_policy_train_steps_on_reset
         self.advantage_weighted_buffer_loss=advantage_weighted_buffer_loss
+        self.discrete=discrete
 
     def get_batch_from_buffer(self, replay_buffer, batch_size):
         batch = replay_buffer.random_batch(batch_size)  # random_batch from class ReplayBuffer
@@ -461,11 +468,11 @@ class AWACTrainer(TorchTrainer):
         """
         Policy and Alpha Loss
         """
-        dist = self.policy(obs)
-        #new_obs_actions, log_pi = dist.rsample_and_logprob()
-        new_obs_actions, log_pi = self.policy.rsample_and_logprob()
-        #policy_mle = dist.mle_estimate()
-        policy_mle = self.policy.mle_estimate()
+        
+        _,mean,_,_,_,std,_,_ = self.policy(obs, reparameterize=True, return_log_prob=True,)
+        dist = MultivariateDiagonalNormal(mean, std) 
+        new_obs_actions, log_pi = dist.rsample_and_logprob()
+        policy_mle = dist.mle_estimate()
 
         if self.brac:
             buf_dist = self.buffer_policy(obs)
@@ -489,7 +496,8 @@ class AWACTrainer(TorchTrainer):
         q2_pred = self.qf2(obs, actions)
         # Make sure policy accounts for squashing functions like tanh correctly!
         next_dist = self.policy(next_obs)
-        new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
+        # new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
+        new_next_actions,_,_,new_log_pi, _, _, _,_ = self.policy(obs, reparameterize=True, return_log_prob=True, )
         target_q_values = torch.min(
             self.target_qf1(next_obs, new_next_actions),
             self.target_qf2(next_obs, new_next_actions),
@@ -646,6 +654,7 @@ class AWACTrainer(TorchTrainer):
             policy_loss = policy_loss + self.reparam_weight * (-q_new_actions).mean()
 
         policy_loss = self.rl_weight * policy_loss
+        
         if self.compute_bc:
             train_policy_loss, train_logp_loss, train_mse_loss, _ = self.run_bc_batch(self.demo_train_buffer, self.policy)
             policy_loss = policy_loss + self.bc_weight * train_policy_loss
@@ -710,6 +719,11 @@ class AWACTrainer(TorchTrainer):
             else:
                 buffer_policy_loss, buffer_train_logp_loss, buffer_train_mse_loss, _ = self.run_bc_batch(
                     self.replay_buffer.train_replay_buffer, self.buffer_policy)
+                    
+        if self._n_train_steps_total < self.policy_eval_start:  
+        
+            policy_log_prob = self.policy.log_prob(obs, actions)
+            policy_loss = (log_pi - policy_log_prob).mean()  
 
 
 

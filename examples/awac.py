@@ -1,7 +1,13 @@
+import comet_ml
+
 import rlkit.torch.pytorch_util as ptu
 from rlkit.data_management.load_buffer import load_data_from_npy_chaining
 from rlkit.samplers.data_collector import MdpPathCollector, \
     CustomMDPPathCollector
+    
+
+import torch
+import roboverse
 
 from rlkit.torch.sac.policies import TanhGaussianPolicy, MakeDeterministic
 from rlkit.torch.sac.cql import CQLTrainer
@@ -24,8 +30,23 @@ DEFAULT_TASK_BUFFER = ('/media/avi/data/Work/github/avisingh599/minibullet'
                         '_noise_0.1_2020-10-06T19-37-26_100.npy')
 CUSTOM_LOG_DIR = '/nfs/kun1/users/avi/doodad-output/'
 
+class Log:
+    def __init__(self, PATH):
+        from logging_utils import Logger as TableLogger
+        self._logger = TableLogger()
+        self._logger.add_folder_output(folder_name=f"{PATH}")
+        self._logger.add_tabular_output(file_name=f"{PATH}/log_data.csv")
+        os.makedirs(PATH, exist_ok=True)
 
-def experiment(variant):
+    def log_dict(self, dico):
+        for k, v in dico.items():
+            if isinstance(v, list) and len(v) == 0:
+                continue
+            self._logger.record_tabular_misc_stat(k, v)
+        self._logger.dump_tabular()
+
+
+def experiment(variant, comet_logger):
     eval_env = roboverse.make(variant['env'], transpose_image=True)
     expl_env = eval_env
     action_dim = eval_env.action_space.low.size
@@ -57,7 +78,7 @@ def experiment(variant):
         obs_processor=policy_obs_processor,
     )
 
-    eval_policy = MakeDeterministic(policy)
+    eval_policy = policy #MakeDeterministic(policy)
     eval_path_collector = MdpPathCollector(
         eval_env,
         eval_policy,
@@ -87,7 +108,7 @@ def experiment(variant):
         qf2=qf2,
         target_qf1=target_qf1,
         target_qf2=target_qf2,
-        #**variant['trainer_kwargs']
+        **variant['trainer_kwargs'],
     )
     algorithm = TorchBatchRLAlgorithm(
         trainer=trainer,
@@ -104,7 +125,7 @@ def experiment(variant):
     algorithm.post_epoch_funcs.append(video_func)
 
     algorithm.to(ptu.device)
-    algorithm.train()
+    algorithm.train(comet_logger=comet_logger)
 
 
 def enable_gpus(gpu_str):
@@ -115,6 +136,18 @@ def enable_gpus(gpu_str):
 
 if __name__ == "__main__":
     # noinspection PyTypeChecker
+    
+    comet_exp = comet_ml.Experiment(
+        api_key='QsmVNJzwh5dbTTI6ECRGBtZfm',
+        project_name='cog_project',
+        workspace="jbakams"
+    )
+    logger = Log(PATH='/home/jey/cog/logs')
+    comet_exp.add_tag("project")
+    comet_exp.set_name("awac_2")
+    comet_exp.set_filename(fname="cometML_test")
+    logger._logger.set_comet_logger(comet_exp)
+    
     variant = dict(
         algorithm="CQL",
         version="normal",
@@ -133,31 +166,9 @@ if __name__ == "__main__":
             max_path_length=30,
             batch_size=256,
         ),
+            
         trainer_kwargs=dict(
-            discount=0.99,
-            soft_target_tau=5e-3,
-            policy_lr=1E-4,
-            qf_lr=3E-4,
-            reward_scale=1,
-            use_automatic_entropy_tuning=True,
-
-            # Target nets/ policy vs Q-function update
-            #policy_eval_start=10000,
-            num_qs=2,
-
-            # min Q
-            temp=1.0,
-            min_q_version=3,
-            min_q_weight=5.0,
-
-            # lagrange
-            with_lagrange=False,  # Defaults to False
-            lagrange_thresh=5.0,
-
-            # extra params
-            num_random=1,
-            max_q_backup=False,
-            deterministic_backup=False,
+            policy_eval_start=10000,
         ),
         cnn_params=dict(
             kernel_sizes=[3, 3, 3],
@@ -214,15 +225,7 @@ if __name__ == "__main__":
     variant['prior_buffer'] = args.prior_buffer
     variant['task_buffer'] = args.task_buffer
 
-    variant['trainer_kwargs']['max_q_backup'] = args.max_q_backup
-    variant['trainer_kwargs']['deterministic_backup'] = \
-        not args.no_deterministic_backup
-    variant['trainer_kwargs']['min_q_weight'] = args.min_q_weight
-    variant['trainer_kwargs']['policy_lr'] = args.policy_lr
-    variant['trainer_kwargs']['min_q_version'] = args.min_q_version
-    variant['trainer_kwargs']['policy_eval_start'] = args.policy_eval_start
-    variant['trainer_kwargs']['lagrange_thresh'] = args.lagrange_thresh
-    variant['trainer_kwargs']['with_lagrange'] = args.use_lagrange
+    
 
     # Translate 0/1 rewards to +4/+10 rewards.
     variant['use_positive_rew'] = args.use_positive_rew
@@ -237,4 +240,4 @@ if __name__ == "__main__":
 
     setup_logger(exp_prefix, variant=variant, base_log_dir=base_log_dir,
                  snapshot_mode='gap_and_last', snapshot_gap=10,)
-    experiment(variant)
+    experiment(variant, logger)

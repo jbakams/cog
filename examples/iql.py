@@ -3,6 +3,8 @@ import json
 import os
 import copy
 
+import comet_ml
+
 import torch
 import roboverse
 
@@ -42,8 +44,23 @@ DEFAULT_TASK_BUFFER = ('/media/avi/data/Work/github/avisingh599/minibullet'
                         '_noise_0.1_2020-10-06T19-37-26_100.npy')
 CUSTOM_LOG_DIR = '/nfs/kun1/users/avi/doodad-output/'
 
+class Log:
+    def __init__(self, PATH):
+        from logging_utils import Logger as TableLogger
+        self._logger = TableLogger()
+        self._logger.add_folder_output(folder_name=f"{PATH}")
+        self._logger.add_tabular_output(file_name=f"{PATH}/log_data.csv")
+        os.makedirs(PATH, exist_ok=True)
 
-def experiment(variant):
+    def log_dict(self, dico):
+        for k, v in dico.items():
+            if isinstance(v, list) and len(v) == 0:
+                continue
+            self._logger.record_tabular_misc_stat(k, v)
+        self._logger.dump_tabular()
+
+
+def experiment(variant, comet_logger):
     eval_env = roboverse.make(variant['env'], transpose_image=True)
     expl_env = eval_env
     action_dim = eval_env.action_space.low.size
@@ -119,7 +136,7 @@ def experiment(variant):
         target_qf1=target_qf1,
         target_qf2=target_qf2,
         vf=vf,
-        **variant['trainer_kwargs']
+        **variant['trainer_kwargs'],
     )
     algorithm = TorchBatchRLAlgorithm(
         trainer=trainer,
@@ -136,7 +153,7 @@ def experiment(variant):
     algorithm.post_epoch_funcs.append(video_func)
 
     algorithm.to(ptu.device)
-    algorithm.train()
+    algorithm.train(comet_logger=comet_logger)
 
 
 def enable_gpus(gpu_str):
@@ -147,8 +164,21 @@ def enable_gpus(gpu_str):
 
 if __name__ == "__main__":
     # noinspection PyTypeChecker
+    
+    
+    comet_exp = comet_ml.Experiment(
+        api_key='QsmVNJzwh5dbTTI6ECRGBtZfm',
+        project_name='cog_project',
+        workspace="jbakams"
+    )
+    logger = Log(PATH='/home/jey/cog/logs')
+    comet_exp.add_tag("project")
+    comet_exp.set_name("iql_3")
+    comet_exp.set_filename(fname="cometML_test")
+    logger._logger.set_comet_logger(comet_exp)
+    
     variant = dict(
-        algorithm="IQL",
+        algorithm="CQL",
         version="normal",
         algorithm_kwargs=dict(
             # num_epochs=100,
@@ -168,22 +198,21 @@ if __name__ == "__main__":
         
         trainer_kwargs=dict(
         discount=0.99,
-        policy_lr=1E-4,
+        policy_lr=3E-4,
         qf_lr=3E-4,
         reward_scale=1,
-        soft_target_tau=0.005,
 
         policy_weight_decay=0,
         q_weight_decay=0,
-        
-        policy_eval_start=10000,
 
-        reward_transform_kwargs=None,
+        #reward_transform_kwargs=dict(m=1, b=-1),
         terminal_transform_kwargs=None,
 
-        beta=1.0 / 3,
-        quantile=0.7,
+        beta=0.1,
+        quantile=0.9,
         clip_score=100,
+        
+        policy_eval_start=10000,
    	 ),
    	 
         cnn_params=dict(
@@ -264,4 +293,4 @@ if __name__ == "__main__":
 
     setup_logger(exp_prefix, variant=variant, base_log_dir=base_log_dir,
                  snapshot_mode='gap_and_last', snapshot_gap=10,)
-    experiment(variant)
+    experiment(variant, logger)
